@@ -44,17 +44,17 @@ bool MQTT_CONNECT(const char *clientId, const char *deviceName, const char *prod
         /* 检查输入缓冲区 */
         if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0x20 && MQTT_Rx_Buffer[1] == 0x02 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x00)
         {
-            printf("connect success\r\n");
+            // printf("MQTT connect success\r\n");
             return true;
         }
         else
         {
-            printf("connect fail\r\n");
+            // printf("MQTT connect fail\r\n");
         }
     }
     else
     {
-        printf("MQTT_CONNECT: build packet failed\r\n");
+        // printf("MQTT_CONNECT: build packet failed\r\n");
     }
 
     return false;
@@ -114,6 +114,11 @@ bool MQTT_SUBSCRIBE(const char *topicFilter, uint8_t requestedQoS)
     /* 构建 SUBSCRIBE 报文（并写入 MQTT 输出缓冲区） */
     if (__MQTT_Build_Subscribe_Packet(topicFilter, requestedQoS))
     {
+        // printf("MQTT SUBSCRIBE Packet:\r\n");
+        // for (i = 0; i < MQTT_Tx_Length; i++)
+        //     printf("%02X ", MQTT_Tx_Buffer[i]);
+        // printf("\r\n");
+
         /* 发送报文 */
         __MQTT_Send_Packet();
 
@@ -123,7 +128,19 @@ bool MQTT_SUBSCRIBE(const char *topicFilter, uint8_t requestedQoS)
 
         /* 检查输入缓冲区 */
         if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0x90 && MQTT_Rx_Buffer[1] == 0x03 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x0A && MQTT_Rx_Buffer[4] == 0x01)
+        {
+            // printf("MQTT subscribe success\r\n");
             return true;
+        }
+        else
+        {
+            // printf("MQTT subscribe fail\r\n");
+            // printf("SUBACK Packet: %02X %02X %02X %02X %02X\r\n", MQTT_Rx_Buffer[0], MQTT_Rx_Buffer[1], MQTT_Rx_Buffer[2], MQTT_Rx_Buffer[3], MQTT_Rx_Buffer[4]);
+        }
+    }
+    else
+    {
+        // printf("MQTT_SUBSCRIBE: build packet failed\r\n");
     }
 
     return false;
@@ -251,7 +268,6 @@ bool __MQTT_Build_Connect_Packet(const char *clientId, const char *deviceName, c
     char payload_password_raw[128] = {0};      // 有效载荷的 Password 部分（加密前）
     char payload_password_encoded[128] = {0};  // 有效载荷的 Password 部分（加密后）
 
-
     /* ⚒️构建有效载荷部分（Client Identifier、User Name、Password）*/
     {
         /* 构建 Client Identifier 字段
@@ -296,7 +312,6 @@ bool __MQTT_Build_Connect_Packet(const char *clientId, const char *deviceName, c
         size_remaining_length = __Size_Of_Remaining_Length(remaining_length, fixed_header);
     }
 
-
     /* ⚒️构建可变报头部分 已在 variable_header 声明 + 初始化时完成 */
 
     /* 固定报头的长度 =「剩余长度」字段的大小 +1（固定报头的第一个字节） */
@@ -305,11 +320,9 @@ bool __MQTT_Build_Connect_Packet(const char *clientId, const char *deviceName, c
     /* 🗂️确定固定报头的索引（0） */
     index_fixed_header = 0;
 
-
-    /* 先清空 MQTT 输出缓冲区 
+    /* 先清空 MQTT 输出缓冲区
     memset(MQTT_Tx_Buffer, 0, MQTT_TX_BUFFER_SIZE);
     MQTT_Tx_Length = 0;*/
-
 
     /* ✍️向 MQTT 输出缓冲区写入 CONNECT 报文的固定报头部分 */
     memcpy(MQTT_Tx_Buffer + index_fixed_header, fixed_header, size_fixed_header);
@@ -425,7 +438,7 @@ bool __MQTT_Build_Subscribe_Packet(const char *topicFilter, uint8_t requestedQoS
     /* 🗂️确定固定报头的索引（0） */
     index_fixed_header = 0;
 
-    /* 先清空 MQTT 输出缓冲区 
+    /* 先清空 MQTT 输出缓冲区
     memset(MQTT_Tx_Buffer, 0, MQTT_TX_BUFFER_SIZE);
     MQTT_Tx_Length = 0;*/
 
@@ -525,7 +538,7 @@ bool __MQTT_Build_UnSubscribe_Packet(const char *topicFilter)
     /* 🗂️确定固定报头的索引（0） */
     index_fixed_header = 0;
 
-    /* 先清空 MQTT 输出缓冲区 
+    /* 先清空 MQTT 输出缓冲区
     memset(MQTT_Tx_Buffer, 0, MQTT_TX_BUFFER_SIZE);
     MQTT_Tx_Length = 0;*/
 
@@ -634,7 +647,7 @@ bool __MQTT_Build_Publish_Packet(const char *topicName, const char *message, uin
     /* 🗂️确定固定报头的索引（0） */
     index_fixed_header = 0;
 
-    /* 先清空 MQTT 输出缓冲区 
+    /* 先清空 MQTT 输出缓冲区
     memset(MQTT_Tx_Buffer, 0, MQTT_TX_BUFFER_SIZE);
     MQTT_Tx_Length = 0;*/
 
@@ -732,6 +745,7 @@ void __MQTT_Send_Packet(void)
     while (i < MQTT_Tx_Length)
     {
         USART_SendByte(MQTT_USART, MQTT_Tx_Buffer[i++]);
+        // printf("%02X ", MQTT_Tx_Buffer[i - 1]);
     }
     while (USART_GetFlagStatus(MQTT_USART, USART_FLAG_TC) == RESET)
         ;

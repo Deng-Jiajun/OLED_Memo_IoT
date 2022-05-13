@@ -31,7 +31,60 @@ esp-01s 联网，与阿里云物联网平台 MQTT 服务器建立 TCP 连接，�
 
 ## 修改内容
 
+在 [THMS_IoT](https://github.com/Deng-Jiajun/THMS_IoT) 中，由于是从设备向服务器发送设备属性，所以忽略了一点：  
+在 MQTT 通信过程中，如果服务端向设备发送设置属性的 PUBLISH 报文，设备也需要发出 PUBLISH 报文作为响应，如果没有进行响应，服务端将无从得知设备是是否做出了有效响应（不论成功或是失败）
 
+![image-20220513170009721](img/image-20220513170009721.png)
+
+![image-20220513170205433](img/image-20220513170205433.png)
+
+
+
+添加了响应后，问题解决
+
+![image-20220513181256603](img/image-20220513181256603.png)
+
+![image-20220513181312288](img/image-20220513181312288.png)
+
+![image-20220513181633632](img/image-20220513181633632.png)
 
 ## 其他问题
 
+### JSON 数据解析
+
+为了解析 MQTT 服务器下发的 json 数据，引入了 json 库，但是编译不通过
+
+```c
+Error: L6915E: Library reports error: __use_no_semihosting was requested, but _ttywrch was referenced
+```
+
+查询得到解决方案，添加以下代码段即可：
+
+```c
+_ttywrch(int ch)
+{
+    ch = ch;
+}
+```
+
+### 堆空间不足
+
+为了解析 json 格式信息，引入了 cJSON 库，在单模块测试时没有发现问题。但是在组合使用时发现程序卡死，一路排查，发现死在了这一步：  
+```c
+root = cJSON_Parse(payload_json);
+```
+
+非常哟西，死在了解析的第一步，获取 root 就挂了。之前在了解 cJSON 时有注意到，获取 root 时会动态申请内存，因此大概率是空间分配出了问题，查询之后了解到，是堆空间不够，适当修改其大小即可
+
+```
+Heap_Size       EQU     0x00000200
+							👇
+Heap_Size       EQU     0x00001000
+```
+
+> 启动文件 `startup_stm32f10x_md.s` 第 46 行
+
+## TODO
+
+1. 修改中断处理程序，以 40ms 为间隔，区分是否为一个完整的数据
+2. 建立输入/输出**缓冲池/缓冲队列**，把同一组数据写入同一块缓冲

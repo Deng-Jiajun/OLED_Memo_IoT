@@ -17,5 +17,8 @@ void TEST_MQTT_BUILD_PACKET(void);
 void TEST_MQTT(void);
 void TEST_MQTT_PUBLISH_Temperature_and_Humidity(void);
 void TEST_String_Concatenation(void);
+void THMS_IoT(void);
+void TEST_MQTT_GET_PUBLISH_Memo(void);
+void TEST_CJSON(void);
 
 #endif

@@ -413,7 +413,7 @@ void TEST_MQTT_CONNECT(void)
 
 /**
  * @brief  构建 MQTT 报文测试函数
- * 
+ *
  */
 void TEST_MQTT_BUILD_PACKET(void)
 {
@@ -532,7 +532,7 @@ void TEST_MQTT(void)
 
 /**
  * @brief 测试发送温湿度数据到服务器（通过 MQTT PUBLISH 报文）
- * 
+ *
  */
 void TEST_MQTT_PUBLISH_Temperature_and_Humidity(void)
 {
@@ -600,15 +600,308 @@ void TEST_String_Concatenation(void)
 {
     USART1_Init();
     {
-       /* 拼接用于连接 AP 的 AT 指令 */
-        char at_command_connect_ap[256]={0};
+        /* 拼接用于连接 AP 的 AT 指令 */
+        char at_command_connect_ap[256] = {0};
         sprintf(at_command_connect_ap, "AT+CWJAP_DEF=\"%s\",\"%s\"", AP_SSID, AP_PWD);
         printf("%s\r\n", at_command_connect_ap);
     }
     {
         /* 拼接用于建立 TCP 通信的 AT 指令 */
-        char at_command_establish_tcp_connection[256]={0};
+        char at_command_establish_tcp_connection[256] = {0};
         sprintf(at_command_establish_tcp_connection, "AT+CIPSTART=\"TCP\",\"%s\",%d", TCP_SERVER_IP, TCP_SERVER_PORT);
         printf("%s\r\n", at_command_establish_tcp_connection);
+    }
+}
+
+/**
+ * @brief https://github.com/Deng-Jiajun/THMS_IoT
+ *
+ */
+void THMS_IoT(void)
+{
+    /* 温湿度数据 */
+    uint8_t temperature = 0;
+    uint8_t humidity = 0;
+
+    /* Topic Name */
+    const char *topic_name = "/sys/h6wxLg1Xd3V/DHT11_01/thing/event/property/post";
+
+    /* 包含温湿度的 json 字符串 */
+    char message_json[1024] = {0};
+
+    /* 各种模块初始化 */
+    delay_init();
+    DHT11_Init();
+    NVIC_Config();
+    USART1_Init();
+    USART2_Init();
+    WiFi_Init();
+
+    /* 连接 MQTT 服务器 */
+    MQTT_CONNECT("DHT11_01", "DHT11_01", "h6wxLg1Xd3V", "7f004d6f1724fd41ffc67a8d5a61236d", 3, "hmacsha1");
+
+    while (1)
+    {
+        /* 获取温湿度数据 */
+        DHT11_Read_Data(&temperature, &humidity);
+
+        /* 构建 message_json 字符串（publish 报文的有效载荷） */
+        sprintf(message_json, "{\"id\":\"1234\",\"version\":\"1.0\",\"method\":\"thing.event.property.post\",\"params\":{\"CurrentHumidity\":%d,\"CurrentTemperature\":%d}}", humidity, temperature);
+
+        /* 上传温湿度数据 */
+        if (MQTT_PUBLISH(topic_name, message_json, 0)) // 发送报文后会有 5 秒的等待时间
+        {
+            printf("Publish success(temperature: %d, humidity: %d)\r\n", temperature, humidity);
+        }
+
+        /* 延时 5 秒 */
+        delay_ms(1800);
+        delay_ms(1800);
+        delay_ms(1400);
+    }
+}
+
+/* 从 MQTT 输入缓冲区中取出有效载荷（JSON 格式） */
+void Get_Payload_JSON_From_MQTT_Rx_Buffer(char *payload_json)
+{
+    /* buffer 里的报文是这样的：报文类型（30） 剩余长度 主题名 {JSON} */
+    /* 直接找第一个 "{" 字符 */
+    uint8_t i = 0;
+    while (i < MQTT_Rx_Length)
+    {
+        if (MQTT_Rx_Buffer[i] == '{')
+        {
+            break;
+        }
+        i++;
+    }
+
+    /* 把 json 内容写入 payload_json */
+    memcpy(payload_json, (const void *)(MQTT_Rx_Buffer + i), MQTT_Rx_Length - i);
+}
+
+void GET_Display_From_Payload_JSON(char *payload_json, char *display_string)
+{
+    cJSON *root = NULL;
+    cJSON *params = NULL;
+    cJSON *display = NULL;
+
+    // printf("++%s++\r\n", payload_json);
+    // printf("start\r\n");
+    root = cJSON_Parse(payload_json);
+    // printf("end\r\n");
+
+    if (root == NULL)
+    {
+        printf("cJSON *root is NULL\r\n");
+        return;
+    }
+
+    params = cJSON_GetObjectItem(root, "params");
+    if (params == NULL)
+    {
+        printf("cJSON *params is NULL\r\n");
+        cJSON_Delete(root);
+        return;
+    }
+
+    display = cJSON_GetObjectItem(params, "Display");
+    if (display == NULL)
+    {
+        printf("cJSON *display is NULL\r\n");
+        cJSON_Delete(root);
+        return;
+    }
+
+    // printf("%s\r\n", display->valuestring);
+
+    memset(display_string, 0, 256);               // 先清空 display_string
+    strcpy(display_string, display->valuestring); // 再更新 display_string
+
+    cJSON_Delete(root); // 资源释放
+}
+void TEST_MQTT_GET_PUBLISH_Memo(void)
+{
+    int i = 0;
+    const char *topicFilter = "/sys/h6wxwxhbiAn/OLED_01/thing/service/property/set";
+    char payload_json[1024] = {0};  // 待解析的 有效载荷 json 字符串
+    char display_string[256] = {0}; // 从 payload_json 中取出的待显示的字符串
+
+    delay_init();
+    NVIC_Config();
+    USART1_Init();
+    USART2_Init();
+
+    printf("hello world\r\n");
+    // {
+    //     printf("connect packet:\r\n");
+    //     if (__MQTT_Build_Connect_Packet("OLED_01", "OLED_01", "h6wxwxhbiAn", "0ca71ab3c494ad6037f2f3134f9d4343", 3, "hmacsha1"))
+    //     {
+    //         i = 0;
+    //         /* 看一下构建好的 CONNECT 报文*/
+    //         while (i < MQTT_Tx_Length)
+    //         {
+    //             printf("%02X ", MQTT_Tx_Buffer[i++]);
+    //         }
+    //         printf("\r\n");
+    //     }
+
+    //     printf("subscribe packet:\r\n");
+    //     if (__MQTT_Build_Subscribe_Packet(topicFilter, 0))
+    //     {
+    //         i = 0;
+    //         /* 看一下构建好的 SUBSCRIBE 报文*/
+    //         while (i < MQTT_Tx_Length)
+    //         {
+    //             printf("%02X ", MQTT_Tx_Buffer[i++]);
+    //         }
+    //         printf("\r\n");
+    //     }
+    // }
+
+    if (WiFi_Init()) // WiFi 初始化成功
+    {
+        if (MQTT_CONNECT("OLED_01", "OLED_01", "h6wxwxhbiAn", "0ca71ab3c494ad6037f2f3134f9d4343", 3, "hmacsha1")) // MQTT 建立连接成功
+        {
+            printf("MQTT CONNECT ACK\r\n");
+            if (MQTT_SUBSCRIBE(topicFilter, 0)) // MQTT 订阅成功
+            {
+                printf("MQTT SUBSCRIBE ACK\r\n");
+                /* 输入缓冲区清零 */
+                memset(MQTT_Rx_Buffer, 0, MQTT_RX_BUFFER_SIZE);
+                MQTT_Rx_Length = 0;
+
+                while (1)
+                {
+                    /* 如果输入缓冲区有内容，就读出来 */
+                    if (MQTT_Rx_Length)
+                    {
+                        /* 等一秒，确保全部接收到 */
+                        delay_ms(1000);
+
+                        Get_Payload_JSON_From_MQTT_Rx_Buffer(payload_json);
+                        printf("payload_json: %s\r\n", payload_json);
+
+                        // /* 看一下接收到的 publish 报文*/
+                        // i = 0;
+                        // while (i < MQTT_Rx_Length)
+                        // {
+                        //     printf("%02X ", MQTT_Rx_Buffer[i++]);
+                        // }
+                        // printf("\r\n");
+
+                        /* 调用 cJSON 库解析 payload_json 字符串，取出 Display */
+                        GET_Display_From_Payload_JSON(payload_json, display_string);
+
+                        printf("display_string: %s\r\n", display_string);
+
+                        /* 输入缓冲区清零 */
+                        MQTT_Rx_Length = 0;
+                    }
+                    delay_ms(1000);
+
+                    /* 延时 5 秒
+                    delay_ms(1800);
+                    delay_ms(1800);
+                    delay_ms(1400);*/
+
+                    if (i++ > 30)
+                    {
+                        /* 隔一段时间发送一次 PINGREQ 保活 */
+                        if (MQTT_PINGREQ())
+                        {
+                            printf("MQTT PINGREQ success\r\n");
+                            i = 0;
+                        }
+                        else
+                        {
+                            i -= 5;
+                            printf("MQTT PINGREQ failed\r\n");
+                        }
+
+                        /* 输入缓冲区清零 */
+                        MQTT_Rx_Length = 0;
+                    }
+                }
+            }
+            // else
+            {
+                printf("MQTT SUBSCRIBE NACK\r\n");
+            }
+        }
+        else
+        {
+            printf("MQTT CONNECT NACK\r\n");
+        }
+    }
+    else
+    {
+        printf("WiFi init failed\r\n");
+    }
+}
+
+/* 引入 cJSON 报错，加入下面这段代码 */
+_ttywrch(int ch)
+{
+    ch = ch;
+}
+/**
+ * @brief cJSON 库测试函数
+ *
+ */
+void TEST_CJSON(void)
+{
+    /* 用作测试的 json 字符串 */
+    char *json_string = "{\"method\":\"thing.service.property.set\",\"id\":\"1385326679\",\"params\":{\"Display\":\"TEST\"},\"version\":\"1.0.0\"}";
+
+    /* 调用 cJSON 库解析 json 字符串，取出 Display */
+    cJSON *root = cJSON_Parse(json_string);
+    cJSON *params = cJSON_GetObjectItem(root, "params");
+    cJSON *display = cJSON_GetObjectItem(params, "Display");
+
+    USART1_Init();
+    printf("%s\r\n", display->valuestring);
+    cJSON_Delete(root);
+
+    /* 用 GET_Display_From_Payload_JSON 函数解析 json 字符串，取出 Display */
+    printf("GET_Display_From_Payload_JSON:\r\n");
+    {
+        char display_string[256];
+        GET_Display_From_Payload_JSON(json_string, display_string);
+        printf("%s\r\n", display_string);
+    }
+}
+
+/**
+ * @brief 测试向 MQTT 服务器发送字符串
+ *
+ */
+void TEST_MQTT_PUBLISH_TEXT(void)
+{
+    int i = 0;
+    char topic_name_publish[1024] = "/sys/h6wxwxhbiAn/OLED_01/thing/event/property/post";
+    char payload_json[1024] = {0};  // 有效载荷的 json 字符串
+    char display_string[256] = {0}; // json 中 key 为 Display 的 value
+
+    delay_init();
+    NVIC_Config();
+    USART1_Init();
+    USART2_Init();
+    WiFi_Init();
+
+    /* 连接 MQTT 服务器 */
+    if (MQTT_CONNECT("OLED_01", "OLED_01", "h6wxwxhbiAn", "0ca71ab3c494ad6037f2f3134f9d4343", 3, "hmacsha1"))
+        printf("mqtt connect success\r\n");
+    else
+        printf("mqtt connect failed\r\n");
+
+    while (1)
+    {
+        delay_ms(1800);
+        delay_ms(1800);
+        delay_ms(1400);
+        sprintf(display_string, "count: %d", i++);
+        sprintf(payload_json, "{\"id\":\"1234\",\"version\":\"1.0\",\"method\":\"thing.event.property.post\",\"params\":{\"Display\":\"%s\"}}", display_string);
+        MQTT_PUBLISH(topic_name_publish, payload_json, 0);
     }
 }

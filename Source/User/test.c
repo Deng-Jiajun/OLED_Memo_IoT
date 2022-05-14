@@ -905,3 +905,25 @@ void TEST_MQTT_PUBLISH_TEXT(void)
         MQTT_PUBLISH(topic_name_publish, payload_json, 0);
     }
 }
+
+/**
+ * @brief 测试定时器计时
+ *
+ */
+void TEST_TIMER(void)
+{
+    delay_init();
+    NVIC_Config();
+    LED_Init();
+    USART1_Init();
+
+    /* 定时器初始化 */
+    TIM2_Init(10000 - 1, 7200 - 1);
+    // TIM3_Init(10-1, 7200-1);
+
+    /* 测试方式：30 秒亮灭一次 LED，掐表计算亮灭间隔 */
+    /* 长时间计算方式：第10秒亮起，第1800秒灭,合计 29分50秒 */
+
+    while (1)
+        ;
+}

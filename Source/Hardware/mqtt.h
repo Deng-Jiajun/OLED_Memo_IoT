@@ -3,6 +3,8 @@
 
 #include "sys.h"
 
+extern bool MQTT_Rx_Buffer_Data_Integrity;
+
 #define MQTT_USART WIFI_USART // MQTT 传输数据使用的串口
 
 #define MQTT_RX_BUFFER_SIZE WIFI_RX_BUFFER_SIZE // MQTT 输入缓冲区大小

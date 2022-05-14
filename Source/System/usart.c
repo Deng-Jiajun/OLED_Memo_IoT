@@ -152,25 +152,36 @@ void USART1_IRQHandler(void)
  */
 void USART2_IRQHandler(void)
 {
-
     /*  如果引发了接收中断（接收中断标志位不为 0，接收数据寄存器不为空） */
     if (USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)
     {
 
-        /* 如果输入缓冲区满了，就覆盖最早的数据 */
-        if (USART2_Rx_Length >= USART2_RX_BUFFER_SIZE)
-        {
-            USART2_Rx_Length = 0;
-        }
+        // /* 如果输入缓冲区满了，就覆盖最早的数据 */
+        // if (USART2_Rx_Length >= USART2_RX_BUFFER_SIZE)
+        // {
+        //     USART2_Rx_Length = 0;
+        // }
 
-        /* 若接收的是 AT 指令响应 */
-        if (AT_Instruction_Mode)
+        if (AT_Instruction_Mode) /* 若接收的是 AT 指令响应 */
         {
-            /* 需要保证数据不为 0 */
+            /* 如果数据为 0，不写入输入缓冲区，直接返回 */
             if (USART_ReceiveData(USART2) == 0)
                 return;
         }
-
+        else /* 若接收的是 MQTT 报文 */
+        {
+            /* 如果是第一个字节，就打开计时器，开始计时 */
+            if (USART2_Rx_Length == 0)
+            {
+                MQTT_Rx_Buffer_Data_Integrity = false; // 顺便标识数据未完整
+                TIM_Cmd(TIM2, ENABLE);
+            }
+            /* 如果不是第一个字节，就把计数值归 0 */
+            else
+            {
+                TIM_SetCounter(TIM2, 0);
+            }
+        }
         /* 把接收到的数据存到输入缓冲区里 */
         USART2_Rx_Buffer[USART2_Rx_Length++] = USART_ReceiveData(USART2);
     }
@@ -183,8 +194,7 @@ void USART2_IRQHandler(void)
 /**
  * @brief 通过 USART 发送一个字符
  *
- * @param USARTx 通过哪个 USART 发送。
- * 				 可以填：USART1, USART2, USART3, UART4 和 UART5
+ * @param USARTx 通过哪个 USART 发送。可以填：USART1, USART2, USART3, UART4 和 UART5
  * @param Data 发送的数据（一个字符）
  *
  * @note 发送一个字符后会等待，直到发送数据寄存器为空（USART_FLAG_TXE）
@@ -234,8 +244,7 @@ void USART_SendString(USART_TypeDef *USARTx, char *str)
 /**
  * @brief 从 USART 接收字符
  *
- * @param USARTx 通过哪个 USART 接收。
- * 				 可以填：USART1, USART2, USART3, UART4 和 UART5
+ * @param USARTx 通过哪个 USART 接收。可以填：USART1, USART2, USART3, UART4 和 UART5
  * @return uint8_t 接收到的数据（一个字符）
  * @see USART_ReceiveData
  * @warning 这里会死等，直到接收到数据
@@ -329,6 +338,9 @@ void USART2_Printf(char *fmt, ...)
     va_end(ap);
 
     length = strlen((const char *)USART2_Tx_Buffer);
+    
+    while (USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET)
+        ;
     while (i < length)
     {
         USART_SendByte(USART2, USART2_Tx_Buffer[i++]);

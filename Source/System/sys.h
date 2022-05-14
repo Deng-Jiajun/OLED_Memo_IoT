@@ -11,6 +11,7 @@
 #include "iic.h"
 #include "rcc.h"
 #include "assert_param.h"
+#include "timer.h"
 
 #include "oled_iic.h"
 #include "dht11.h"

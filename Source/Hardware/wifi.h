@@ -28,9 +28,6 @@ extern bool AT_Instruction_Mode;
 #ifdef LOCAL_TCP_SERVER // 连接本地 TCP 服务器，用于本地调试
 #define TCP_SERVER_IP "192.168.0.195"
 #define TCP_SERVER_PORT 8080
-/* 👆用上面两个参数凑出下面这个 AT 指令👇（上面两个宏定义暂时没有实际作用）*/
-#define AT_COMMAND_ESTABLISH_TCP_CONNECTION "AT+CIPSTART=\"TCP\",\"192.168.0.195\",8080"
-/* 👆 用于建立 TCP 通信的 AT 指令 */
 #endif
 
 #ifdef Ali_TCP_SERVER // 连接阿里云 MQTT 服务器，用于收发数据

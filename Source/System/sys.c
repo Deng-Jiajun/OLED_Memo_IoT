@@ -1,6 +1,5 @@
 #include "sys.h"
 
-
 /**
  * @brief NVIC 配置函数
  */
@@ -35,5 +34,28 @@ void NVIC_Config(void)
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     /* NVIC 初始化 */
     NVIC_Init(&NVIC_InitStructure);
-}
 
+    /* ------------------------- TIM2 NVIC 配置 ------------------------- */
+    /* NVIC 中断通道 */
+    NVIC_InitStructure.NVIC_IRQChannel = TIM2_IRQn;
+    /* 抢占优先级 */
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;
+    /* 响应优先级 */
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    /* 中断使能 */
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    /* NVIC 初始化 */
+    NVIC_Init(&NVIC_InitStructure);
+
+    /* ------------------------- TIM3 NVIC 配置 ------------------------- */
+    /* NVIC 中断通道 */
+    NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;
+    /* 抢占优先级 */
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+    /* 响应优先级 */
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
+    /* 中断使能 */
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    /* NVIC 初始化 */
+    NVIC_Init(&NVIC_InitStructure);
+}

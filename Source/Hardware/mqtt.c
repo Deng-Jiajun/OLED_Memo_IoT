@@ -1,11 +1,17 @@
 #include "sys.h"
 
+/* 用于标识缓冲区的数据是否完整，完整则可读。该值由两处控制：
+    USART2_IRQHandler：开始接收第一个数据时，将其置 false
+    TIM2_IRQHandle：当接收的数据间隔超时时（数据接收完毕），将其置 true */
+bool MQTT_Rx_Buffer_Data_Integrity = false;
+
 bool __MQTT_Build_Connect_Packet(const char *clientId, const char *deviceName, const char *productKey, const char *deviceSecret, uint8_t securemode, const char *signmethod);
 bool __MQTT_Build_Subscribe_Packet(const char *topicFilter, uint8_t requestedQoS);
 bool __MQTT_Build_UnSubscribe_Packet(const char *topicFilter);
 bool __MQTT_Build_Publish_Packet(const char *topicName, const char *message, uint8_t QoS);
 uint8_t __Size_Of_Remaining_Length(uint8_t remaining_length, char *fixed_header);
 void __MQTT_Send_Packet(void);
+bool __MQTT_Wait_Response_Packet(void);
 
 /**
  * @brief MQTT 发送 CONNECT 报文，连接服务器
@@ -25,36 +31,33 @@ void __MQTT_Send_Packet(void);
  */
 bool MQTT_CONNECT(const char *clientId, const char *deviceName, const char *productKey, const char *DeviceSecret, uint8_t securemode, const char *signmethod)
 {
-    uint8_t i = 0;
-
-    /* 输入缓冲区清零 */
-    memset(MQTT_Rx_Buffer, 0, MQTT_RX_BUFFER_SIZE);
-    MQTT_Rx_Length = 0;
-
     /* 构建 CONNECT 报文（并写入 MQTT 输出缓冲区） */
     if (__MQTT_Build_Connect_Packet(clientId, deviceName, productKey, DeviceSecret, securemode, signmethod))
     {
-        /* 发送报文 */
-        __MQTT_Send_Packet();
+        MQTT_Rx_Length = 0;   /* 输入缓冲区清零 */
+        __MQTT_Send_Packet(); /* 发送报文 */
 
-        /* 等 5 秒 */
-        for (i = 0; i < 5; i++)
-            delay_ms(1000);
-
-        /* 检查输入缓冲区 */
-        if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0x20 && MQTT_Rx_Buffer[1] == 0x02 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x00)
+        if (__MQTT_Wait_Response_Packet()) /* 如果收到了报文 */
         {
-            // printf("MQTT connect success\r\n");
-            return true;
+            /* 检查输入缓冲区 */
+            if (MQTT_Rx_Buffer[0] == 0x20 && MQTT_Rx_Buffer[1] == 0x02 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x00)
+            {
+                // printf("MQTT connect success\r\n");
+                return true;
+            }
+            else
+            {
+                printf("MQTT connect fail（unexpected respond packet）\r\n");
+            }
         }
-        else
+        else /* 如果没收到报文（超时） */
         {
-            // printf("MQTT connect fail\r\n");
+            printf("MQTT connect timeout\r\n");
         }
     }
     else
     {
-        // printf("MQTT_CONNECT: build packet failed\r\n");
+        printf("MQTT_CONNECT: build packet failed\r\n");
     }
 
     return false;
@@ -68,30 +71,34 @@ bool MQTT_CONNECT(const char *clientId, const char *deviceName, const char *prod
  */
 bool MQTT_PINGREQ(void)
 {
-    uint8_t i;
     char PINGREQ_Packet[2] = {0xC0, 0x00}; /* PINGREQ 报文 */
-
-    /* 输入缓冲区清零 */
-    memset(MQTT_Rx_Buffer, 0, MQTT_RX_BUFFER_SIZE);
-    MQTT_Rx_Length = 0;
 
     /* 直接把数据写入 MQTT 输出缓冲区 */
     MQTT_Tx_Buffer[0] = PINGREQ_Packet[0];
     MQTT_Tx_Buffer[1] = PINGREQ_Packet[1];
     MQTT_Tx_Length = 2;
 
-    /* 发送报文 */
-    __MQTT_Send_Packet();
+    MQTT_Rx_Length = 0;   /* 输入缓冲区清零 */
+    __MQTT_Send_Packet(); /* 发送报文 */
 
-    /* 等 5 秒 */
-    for (i = 0; i < 5; i++)
-        delay_ms(1000);
+    if (__MQTT_Wait_Response_Packet()) /* 如果收到了报文 */
+    {
+        /* 检查输入缓冲区 */
+        if (MQTT_Rx_Buffer[0] == 0xD0 && MQTT_Rx_Buffer[1] == 0x00)
+        {
+            return true;
+        }
+        else
+        {
+            printf("MQTT PINGREQ: unexpected respond packet\r\n");
+        }
+    }
+    else /* 如果没收到报文（超时） */
+    {
+        printf("MQTT Ping: timeout\r\n");
+    }
 
-    /* 检查输入缓冲区 */
-    if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0xD0 && MQTT_Rx_Buffer[1] == 0x00)
-        return true;
-    else
-        return false;
+    return false;
 }
 
 /**
@@ -105,42 +112,40 @@ bool MQTT_PINGREQ(void)
  */
 bool MQTT_SUBSCRIBE(const char *topicFilter, uint8_t requestedQoS)
 {
-    uint8_t i = 0;
-
-    /* 输入缓冲区清零 */
-    memset(MQTT_Rx_Buffer, 0, MQTT_RX_BUFFER_SIZE);
-    MQTT_Rx_Length = 0;
-
     /* 构建 SUBSCRIBE 报文（并写入 MQTT 输出缓冲区） */
     if (__MQTT_Build_Subscribe_Packet(topicFilter, requestedQoS))
     {
+		// uint8_t i = 0;
         // printf("MQTT SUBSCRIBE Packet:\r\n");
         // for (i = 0; i < MQTT_Tx_Length; i++)
         //     printf("%02X ", MQTT_Tx_Buffer[i]);
         // printf("\r\n");
 
-        /* 发送报文 */
-        __MQTT_Send_Packet();
+        MQTT_Rx_Length = 0;   /* 输入缓冲区清零 */
+        __MQTT_Send_Packet(); /* 发送报文 */
 
-        /* 等 5 秒 */
-        for (i = 0; i < 5; i++)
-            delay_ms(1000);
-
-        /* 检查输入缓冲区 */
-        if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0x90 && MQTT_Rx_Buffer[1] == 0x03 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x0A && MQTT_Rx_Buffer[4] == 0x01)
+        if (__MQTT_Wait_Response_Packet()) /* 如果收到了报文 */
         {
-            // printf("MQTT subscribe success\r\n");
-            return true;
+            /* 检查输入缓冲区 */
+            if (MQTT_Rx_Buffer[0] == 0x90 && MQTT_Rx_Buffer[1] == 0x03 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x0A && MQTT_Rx_Buffer[4] == 0x01)
+            {
+                // printf("MQTT subscribe success\r\n");
+                return true;
+            }
+            else
+            {
+                printf("MQTT subscribe fail（unexpected respond packet）\r\n");
+                // printf("SUBACK Packet: %02X %02X %02X %02X %02X\r\n", MQTT_Rx_Buffer[0], MQTT_Rx_Buffer[1], MQTT_Rx_Buffer[2], MQTT_Rx_Buffer[3], MQTT_Rx_Buffer[4]);
+            }
         }
-        else
+        else /* 如果没收到报文（超时） */
         {
-            // printf("MQTT subscribe fail\r\n");
-            // printf("SUBACK Packet: %02X %02X %02X %02X %02X\r\n", MQTT_Rx_Buffer[0], MQTT_Rx_Buffer[1], MQTT_Rx_Buffer[2], MQTT_Rx_Buffer[3], MQTT_Rx_Buffer[4]);
+            printf("MQTT subscribe timeout\r\n");
         }
     }
     else
     {
-        // printf("MQTT_SUBSCRIBE: build packet failed\r\n");
+        printf("MQTT_SUBSCRIBE: build packet failed\r\n");
     }
 
     return false;
@@ -156,25 +161,32 @@ bool MQTT_SUBSCRIBE(const char *topicFilter, uint8_t requestedQoS)
  */
 bool MQTT_UNSUBSCRIBE(const char *topicFilter)
 {
-    uint8_t i = 0;
-
-    /* 输入缓冲区清零 */
-    memset(MQTT_Rx_Buffer, 0, MQTT_RX_BUFFER_SIZE);
-    MQTT_Rx_Length = 0;
-
-    /* 构建 SUBSCRIBE 报文（并写入 MQTT 输出缓冲区） */
+    /* 构建 UNSUBSCRIBE 报文（并写入 MQTT 输出缓冲区） */
     if (__MQTT_Build_UnSubscribe_Packet(topicFilter))
     {
-        /* 发送报文 */
-        __MQTT_Send_Packet();
+        MQTT_Rx_Length = 0;   /* 输入缓冲区清零 */
+        __MQTT_Send_Packet(); /* 发送报文 */
 
-        /* 等 5 秒 */
-        for (i = 0; i < 5; i++)
-            delay_ms(1000);
-
-        /* 检查输入缓冲区 */
-        if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0xB0 && MQTT_Rx_Buffer[1] == 0x02 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x0A)
-            return true;
+        if (__MQTT_Wait_Response_Packet()) /* 如果收到了报文 */
+        {
+            /* 检查输入缓冲区 */
+            if (MQTT_Rx_Buffer[0] == 0xB0 && MQTT_Rx_Buffer[1] == 0x02 && MQTT_Rx_Buffer[2] == 0x00 && MQTT_Rx_Buffer[3] == 0x0A)
+            {
+                return true;
+            }
+            else
+            {
+                printf("MQTT UNSUBSCRIBE: unexpected respond packet\r\n");
+            }
+        }
+        else /* 如果没收到报文（超时） */
+        {
+            printf("MQTT UNSUBSCRIBE: timeout\r\n");
+        }
+    }
+    else
+    {
+        printf("MQTT_UNSUBSCRIBE: build packet failed\r\n");
     }
 
     return false;
@@ -192,34 +204,37 @@ bool MQTT_UNSUBSCRIBE(const char *topicFilter)
  */
 bool MQTT_PUBLISH(const char *topicName, const char *message, uint8_t QoS)
 {
-    uint8_t i = 0;
-
-    /* 输入缓冲区清零 */
-    memset(MQTT_Rx_Buffer, 0, MQTT_RX_BUFFER_SIZE);
-    MQTT_Rx_Length = 0;
-
     /* 构建 PUBLISH 报文（并写入 MQTT 输出缓冲区） */
     if (__MQTT_Build_Publish_Packet(topicName, message, QoS))
     {
-        /* 发送报文 */
-        __MQTT_Send_Packet();
+        MQTT_Rx_Length = 0;   /* 输入缓冲区清零 */
+        __MQTT_Send_Packet(); /* 发送报文 */
 
-        /* 等 5 秒 */
-        for (i = 0; i < 5; i++)
-            delay_ms(1000);
-
-        /* 检查输入缓冲区 */
-        if (QoS == 0)
+        if (__MQTT_Wait_Response_Packet()) /* 如果收到了报文 */
         {
-            /* QoS = 0，没有响应报文，直接返回 true */
-            return true;
+
+            /* 检查输入缓冲区 */
+            if (QoS == 0)
+            {
+                /* QoS = 0，没有响应报文，直接返回 true */
+                return true;
+            }
+            else
+            {
+                /* QoS = 1 或 QoS = 2 */
+                // 暂时没有设计，默认返回 false
+                printf("MQTT_PUBLISH: unexpected QoS\r\n");
+            }
         }
-        else
+        else /* 如果没收到报文（超时） */
         {
-            /* QoS = 1 或 QoS = 2 */
+            printf("MQTT PUBLISH: timeout\r\n");
         }
     }
-
+    else
+    {
+        printf("MQTT_PUBLISH: build packet failed\r\n");
+    }
     return false;
 }
 
@@ -738,15 +753,52 @@ uint8_t __Size_Of_Remaining_Length(uint8_t remaining_length, char *fixed_header)
 
 /**
  * @brief 把 MQTT 输出缓冲区的报文（通过 USART 发出去）
+ * 
+ * TODO 调用 USARTx_Printf 更好（需要重写构建得到的报文的暂存点）
  */
 void __MQTT_Send_Packet(void)
 {
     uint8_t i = 0;
+
+    while (USART_GetFlagStatus(MQTT_USART, USART_FLAG_TC) == RESET)
+        ;
     while (i < MQTT_Tx_Length)
     {
         USART_SendByte(MQTT_USART, MQTT_Tx_Buffer[i++]);
         // printf("%02X ", MQTT_Tx_Buffer[i - 1]);
+        while (USART_GetFlagStatus(MQTT_USART, USART_FLAG_TC) == RESET)
+            ;
     }
-    while (USART_GetFlagStatus(MQTT_USART, USART_FLAG_TC) == RESET)
-        ;
+}
+
+/**
+ * @brief 等待 MQTT 报文响应
+ *
+ * @retval true 收到 MQTT 报文响应
+ * @retval false 没收到 MQTT 报文响应（超时、无数据）
+ */
+bool __MQTT_Wait_Response_Packet(void)
+{
+    uint8_t times = 0;
+    uint8_t max_times = 10 * 5; // 最多等 5 秒
+    while (++times < max_times)
+    {
+        delay_ms(100);
+        /* 有数据，且完整 */
+        if (MQTT_Rx_Length && MQTT_Rx_Buffer_Data_Integrity)
+        {
+            break;
+        }
+    }
+
+    if (times < max_times)
+    {
+        // printf("MQTT Response Packet receive succeed\r\n");
+        return true;
+    }
+    else
+    {
+        printf("MQTT Response Packet receive failed\r\n");
+        return false;
+    }
 }

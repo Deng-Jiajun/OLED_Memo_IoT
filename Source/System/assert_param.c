@@ -1,6 +1,3 @@
-#ifndef __ASSERT_PARAM_H
-#define __ASSERT_PARAM_H
-
 #include "sys.h"
 
 #ifdef USE_FULL_ASSERT
@@ -29,4 +26,4 @@ void assert_failed(u8 *file, u32 line)
 // }
 #endif
 
-#endif
+

@@ -11,6 +11,7 @@ int main(void)
     /* 各种初始化 */
     delay_init();
     NVIC_Config();
+    TIM2_Init(400-1, 7200-1);// 40ms 引发一次中断
     OLED_Init();
     USART1_Init();
     USART2_Init();
@@ -39,11 +40,8 @@ int main(void)
         /* 如果输入缓冲区有 publish 报文，就读出来
             这个判断可以细化，比如判断 Topic Name 是否一致，
             另外，也可以在中断处理函数对收到的不同报文做不同的处理 */
-        if (MQTT_Rx_Length && MQTT_Rx_Buffer[0] == 0x30)
+        if (MQTT_Rx_Length && MQTT_Rx_Buffer_Data_Integrity && MQTT_Rx_Buffer[0] == 0x30)
         {
-            /* 多等一秒，确保全部接收到 */
-            delay_ms(1000);
-
             /* 从缓冲区里把 有效载荷部分取出来，写入 payload_json */
             Get_Payload_JSON_From_MQTT_Rx_Buffer(payload_json);
 
@@ -63,40 +61,42 @@ int main(void)
             /* MQTT 输入缓冲区清零 */
             MQTT_Rx_Length = 0;
         }
-
-        delay_ms(1000);
-
-        if (i++ > 60)
+        else
         {
-            /* 隔一段时间发送一次 PINGREQ 保活 */
-            if (MQTT_PINGREQ())
+            if (i++ > 60)
             {
-                printf("MQTT PINGREQ success\r\n");
-                i = 0;
-                /* 收到响应了就开始新一轮的计时 */
-            }
-            else
-            {
-                printf("MQTT PINGREQ failed\r\n");
-                /* 没收到响应的话，再发一次 PINGREQ */
+
+                /* 隔一段时间发送一次 PINGREQ 保活 */
                 if (MQTT_PINGREQ())
                 {
                     printf("MQTT PINGREQ success\r\n");
                     i = 0;
+                    /* 收到响应了就开始新一轮的计时 */
                 }
                 else
                 {
-                    /* 还没有响应，直接结束重来 */
-                    printf("MQTT PINGREQ failed\r\nprogram end.\r\n");
-                    return 1;
+                    printf("MQTT PINGREQ failed\r\n");
+                    /* 没收到响应的话，再发一次 PINGREQ */
+                    if (MQTT_PINGREQ())
+                    {
+                        printf("MQTT PINGREQ success\r\n");
+                        i = 0;
+                    }
+                    else
+                    {
+                        /* 还没有响应，直接结束重来 */
+                        printf("MQTT PINGREQ failed\r\nprogram end.\r\n");
+                        return 1;
 
-                    /* 💡实际应用中可以考虑做一些重连的动作 */
+                        /* 💡实际应用中可以考虑做一些重连的动作 */
+                    }
                 }
-            }
 
-            /* MQTT 输入缓冲区清零 */
-            MQTT_Rx_Length = 0;
+                /* MQTT 输入缓冲区清零 */
+                MQTT_Rx_Length = 0;
+            }
         }
+        delay_ms(1000);
     }
 }
 
